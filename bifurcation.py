@@ -1,45 +1,58 @@
-def bifurcation_analysis(G, focal_markers=None, core_haplotype = 0, n_markers = None, min_hap_count = 10,
+import numpy as np
+import tables
+
+
+def bifurcation_analysis(a, focal_markers=None, core_haplotype=0,
+                         n_markers=None, min_hap_count=10,
                          max_marker_missingness=0.0, side='right'):
     """
     Convenience function called by haplotype_bifurcation()
     
-    Determine the tree structure of a set of haplotypes around a focal core haplotype, i.e. do the analysis required
-    to create input needed for haplotype_bifurcation plot.
+    Determine the tree structure of a set of haplotypes around a focal core
+    haplotype, i.e. do the analysis required to create input needed for
+    haplotype_bifurcation plot.
     
-    This function is loosely based on the function bifurcation.diagram from R package rehh (Mathieu Gautier and Renaud Vitalis)
+    This function is loosely based on the function bifurcation.diagram from R
+    package rehh (Mathieu Gautier and Renaud Vitalis)
     http://cran.r-project.org/web/packages/rehh/index.html
     
 
     Parameters
     ---------
 
-    G: array
-        2-dimensional array of haploid genotpyes coded as integers (-1 = missing, 0 = ancestral (or ref), 1 = derived (or alt)),
+    a: array
+        2-dimensional array of haploid genotpyes coded as integers
+        (-1 = missing, 0 = ancestral (or ref), 1 = derived (or alt)),
         of shape (#variants, #samples).
         
         Note that any sample that has any missing genotypes will be removed
     
     focal_markers: int/list/array
-        The marker(s) which is (are) to be used as the focus. This can be an integer, list of integers or numpy array of integers.
+        The marker(s) which is (are) to be used as the focus. This can be an
+        integer, list of integers or numpy array of integers.
         Each integer must be >= 0 and < shape(G)[0]
     
     core_haplotype: int/list/array
-        The genotype(s) of interest at the focal marker(s). These are as specified in the G array.
+        The genotype(s) of interest at the focal marker(s).
+        These are as specified in the G array.
         
     n_markers: int
         The number of markers to analyse.
     
     min_hap_count: int
-        The minimum number of haplotypes to attempt to plot. Mainly used for sanity checking.
+        The minimum number of haplotypes to attempt to plot.
+        (Mainly used for sanity checking).
         
     max_marker_missingness: float
-        The maximum amount of missingness to allow for a marker. The default of 0.0 will only use markers that have no missing
-        data (i.e. genotype == -1) for any samples. Setting to 1.0 will attempt to use all markers (though beware that samples
-        with any missing data are subsequently removed). Should be a float between 0.0 and 1.0.
+        The maximum amount of missingness to allow for a marker. The default of
+        0.0 will only use markers that have no missing data
+        (i.e. genotype == -1) for any samples. Setting to 1.0 will attempt to
+        use all markers (though beware that samples with any missing data are
+        subsequently removed). Should be a float between 0.0 and 1.0.
         
     side: string
-        Which side of the focal marker to analyse. Valid values are 'left' or 'right'.
-    
+        Which side of the focal marker to analyse.
+        Valid values are 'left' or 'right'.
 
     Return
     ---------
@@ -48,138 +61,175 @@ def bifurcation_analysis(G, focal_markers=None, core_haplotype = 0, n_markers = 
     
     node_haplotypes: structured array
     
-        Holds all the possible haplotypes in the tree. Each record is a distinct haplotype at a distinct marker (i.e. each record is
-        a branch in the tree).
+        Holds all the possible haplotypes in the tree. Each record is a distinct
+        haplotype at a distinct marker (i.e. each record is a branch in the
+        tree).
         
-        node_haplotypes is initialised with the element for the core haplotype, and the loops of the function add new elements,
-        starting with the branches from the core haplotype, and ending at the haplotypes of the leaves of the tree (i.e. the
-        markers furthest from the focal markers)
+        node_haplotypes is initialised with the element for the core haplotype,
+        and the loops of the function add new elements, starting with the
+        branches from the core haplotype, and ending at the haplotypes of the
+        leaves of the tree (i.e. the markers furthest from the focal markers)
         
         Each record has 3 items:
             haplotype_string: str
-                Haplotype as a string which is the concatenation of all the genotypes from the core haplotype to the given node. 
+                Haplotype as a string which is the concatenation of all the
+                genotypes from the core haplotype to the given node.
             marker_relative_index: int
-                Position of this marker with respect to the (nearest) focal marker, where 0 is the (nearest) focal marker, 1 is
-                the nearest marker to this, 2 is the second nearest marker and so on.
+                Position of this marker with respect to the (nearest) focal
+                marker, where 0 is the (nearest) focal marker, 1 is the nearest
+                marker to this, 2 is the second nearest marker and so on.
             n_haplotypes: int
                 Number of samples with this haplotype at this marker
     
     branching_structure: structured array
     
-        Haplotype tree structure to one side of the focal marker. Each element is a distinct node in the tree.
+        Haplotype tree structure to one side of the focal marker. Each element
+        is a distinct node in the tree.
         
-        branching_structure is initialised with no elements, and the loops of the function add new elements, starting with the
-        core haplotype, and ending at the leaves of the tree (i.e. the marker furthest from the core haplotype).
+        branching_structure is initialised with no elements, and the loops of
+        the function add new elements, starting with the core haplotype, and
+        ending at the leaves of the tree (i.e. the marker furthest from the
+        core haplotype).
         
         Each records has 2 items:
             n_branches: int
-                Number of branches leading away from this node. Must be between 0 or 4, where 0 means this is a leaf node (this
-                can only happen at furthest marker from core haplotype), 1 means there is no split, 2 means there is a biallelic
-                split, 3 means there is a triallelic split, etc.
+                Number of branches leading away from this node. Must be between
+                0 or 4, where 0 means this is a leaf node (this can only happen
+                at furthest marker from core haplotype), 1 means there is no
+                split, 2 means there is a biallelic split, 3 means there is a
+                triallelic split, etc.
             node_indices: array of 4 ints
-                Indices of the nodes connected to the current node. Each index refers to a different node in branching stucture.
-                First n_branches elements should be non-zero, and remaining should be 0.
-    
+                Indices of the nodes connected to the current node. Each index
+                refers to a different node in branching stucture. First
+                n_branches elements should be non-zero, remaining should be 0.
     """
 
     # sanity check inputs
-    assert isinstance(G, numpy.ndarray), "G is not a numpy array"
+    assert isinstance(a, np.ndarray), "G is not a numpy array"
     
-    assert len(shape(G)) == 2, "G is not a 2-dimensional array"
+    assert len(np.shape(a)) == 2, "G is not a 2-dimensional array"
     
     assert side in ['left', 'right'], "side must be 'left' or 'right'"
     
     # Remove markers with high missingess
-    low_missingness_markers = np.apply_along_axis(lambda x: np.sum(x==-1), 1, G) <= max_marker_missingness
-    G = G[low_missingness_markers, :]
+    low_missingness_markers = np.apply_along_axis(lambda x: np.sum(x == -1),
+                                                  1, a) <= max_marker_missingness
+    a = a[low_missingness_markers, :]
     
     # if no focal marker supplied, take the middle marker
     if focal_markers is None:
-        focal_markers = shape(G)[0] / 2
+        focal_markers = np.shape(a)[0] / 2
         
     if isinstance(focal_markers, int):
         focal_markers = np.array([focal_markers])
     if isinstance(focal_markers, list):
         focal_markers = np.array(focal_markers)
-    assert isinstance(focal_markers, numpy.ndarray), "focal_markers must be an int, list, or numpy array"
+    assert isinstance(focal_markers, np.ndarray), \
+        "focal_markers must be an int, list, or numpy array"
 
-    low_missingness_indices = np.vectorize(lambda x:
-        np.sum(low_missingness_markers[arange(x+1)]) - 1 if
-            low_missingness_markers[x]==True else -1)
+    low_missingness_indices = np.vectorize(
+        lambda x: np.sum(low_missingness_markers[np.arange(x+1)]) - 1 if
+        low_missingness_markers[x] is True else -1)
+
     focal_markers_new_indices = low_missingness_indices(focal_markers)
     low_missingness_focal_markers = np.where(focal_markers_new_indices == -1)[0]
     assert len(low_missingness_focal_markers) == 0, \
-        "focal_markers %s have low missingness, perhaps rerun with higher max_marker_missingness?" % ( \
-            focal_markers[low_missingness_focal_markers])
+        "focal_markers %s have low missingness, perhaps rerun with higher max" \
+        "_marker_missingness?" % (focal_markers[low_missingness_focal_markers])
     focal_markers = focal_markers_new_indices
     
     if isinstance(core_haplotype, int):
         core_haplotype = np.array([core_haplotype])
     if isinstance(core_haplotype, list):
         core_haplotype = np.array(core_haplotype)
-    assert isinstance(core_haplotype, numpy.ndarray), "core_haplotype must be an int, list, or numpy array"
-    assert len(core_haplotype) in [1, len(focal_markers)], "core_haplotype has different length than focal_markers"
+    assert isinstance(core_haplotype, np.ndarray), \
+        "core_haplotype must be an int, list, or numpy array"
+    assert len(core_haplotype) in [1, len(focal_markers)], \
+        "core_haplotype has different length than focal_markers"
     
-    if n_markers is None and side=='right':
-        n_markers = shape(G)[0] - np.max(focal_markers) + 1
-    if n_markers is None and side=='left':
+    if n_markers is None and side == 'right':
+        n_markers = np.shape(a)[0] - np.max(focal_markers) + 1
+    if n_markers is None and side == 'left':
         n_markers = np.min(focal_markers)
+
     assert n_markers >= 0, "n_markers must be >= 0"
-    
     assert min_hap_count >= 1, "min_hap_count must be >= 1"
     
     if side == 'left':
         assert n_markers <= np.min(focal_markers), "Too many markers on the left"
     if side == 'right':
-        assert n_markers <= shape(G)[0] - np.max(focal_markers) + 1, "Too many markers on the right"
+        assert n_markers <= np.shape(a)[0] - np.max(focal_markers) + 1, \
+            "Too many markers on the right"
     
     # Define structure of output arrays
     haplotype_dtype = 'a%d' % (n_markers+1)
-    node_haplotypes_dtype = [('haplotype_string', haplotype_dtype), ('marker_relative_index', np.int), ('n_haplotypes', np.int)]
-    branching_structure_dtype = [('n_branches', np.int), ('node_indices', np.int, 4)]
+    node_haplotypes_dtype = [('haplotype_string', haplotype_dtype),
+                             ('marker_relative_index', np.int),
+                             ('n_haplotypes', np.int)]
+    branching_structure_dtype = [('n_branches', np.int),
+                                 ('node_indices', np.int, 4)]
     
     # determine haplotype bifurcations
     if n_markers > 0:
-        # create array of genotypes in markers. Note that we transpose the typical representation of a vcf file where markers
-        # are rows and samples are columns, to make it more intuitive as haplotype bifurcation plots have haplotypes as rows
-        haplotypes_in_core = G.transpose()[np.apply_along_axis(np.all, 1, G.transpose()[:, focal_markers] == core_haplotype), :]
+        # create array of genotypes in markers. Note that we transpose the
+        # typical representation of a vcf file where markers are rows and
+        # samples are columns, to make it more intuitive as haplotype
+        # bifurcation plots have haplotypes as rows
+        haplotypes_in_core = a.transpose()[np.apply_along_axis(np.all, 1, a.transpose()[:, focal_markers] == core_haplotype), :]
         if side == 'right':
             haplo = haplotypes_in_core[:, (np.max(focal_markers) + 1):(np.max(focal_markers) + n_markers + 1)]
         else:
-            if n_markers == np.min(focal_markers): # (focal_markers - 1):(focal_markers - n_markers - 1):-1 doesn't give the required values in this case
+            if n_markers == np.min(focal_markers):
+            # (focal_markers - 1):(focal_markers - n_markers - 1):
+            # -1 doesn't give the required values in this case
                 haplo = haplotypes_in_core[:, (np.min(focal_markers) - 1)::-1]
             else:
                 haplo = haplotypes_in_core[:, (np.min(focal_markers) - 1):(np.min(focal_markers) - n_markers - 1):-1]
             
         # remove any samples with missing genotypes
-        haplo = haplo[np.sum(haplo==-1, axis=1) == 0, ]
+        haplo = haplo[np.sum(haplo == -1, axis=1) == 0, ]
         
         # sanity check we still have enough samples
-        assert shape(haplo)[0] >= min_hap_count, "Number of available haplotypes on the %s lower than min_hap_count" % side
+        assert np.shape(haplo)[0] >= min_hap_count, \
+            "Number of available haplotypes on the %s lower than " \
+            "min_hap_count" % side
                 
         # Set up initial arrays
         
-        # branching_structure holds the branching structure. Each element is a node in the tree. n_branches gives the number of branches
-        # leading away from this node. At present this can only be 1 (if there is no split at the branch) or 2 (if there is a
-        # split). node_1_index holds the index of the first node connected to the current node. node_2_index holds the index of the
-        # second node connected to the current node (if there is a branch at the current node) or else 0 if there is no
-        # branch. branching_structure is initialised with no elements, and the loops below add new elements.
+        # branching_structure holds the branching structure. Each element is a
+        # node in the tree. n_branches gives the number of branches leading away
+        # from this node. At present this can only be 1 (if there is no split at
+        # the branch) or 2 (if there is a split). node_1_index holds the index
+        # of the first node connected to the current node. node_2_index holds
+        # the index of the second node connected to the current node (if there
+        # is a branch at the current node) or else 0 if there is no branch.
+        # branching_structure is initialised with no elements, and the loops
+        # below add new elements.
         branching_structure = np.array([], dtype=branching_structure_dtype)
         
-        # node_haplotypes holds all the possible haplotypes up to a given node in the tree. haplotype_string holds the haplotypes
-        # as a string which is a concatenation of all the genotypes from the core haplotype to the given node. marker_relative_index holds the index of
-        # the marker where 0 is the focal haplotype marker, 1 is the nearest marker to this, 2 is the second nearest marker and so on.
-        # n holds gives the number of haplotypes at the given node. node_haplotypes is initialised with the element for the focal
-        # haplotype, and the loops below add new elements.
-        node_haplotypes = np.array([("", 0, shape(haplo)[0]), ], dtype=node_haplotypes_dtype)
+        # node_haplotypes holds all the possible haplotypes up to a given node
+        # in the tree. haplotype_string holds the haplotypes as a string which
+        # is a concatenation of all the genotypes from the core haplotype to the
+        # given node. marker_relative_index holds the index of the marker where
+        # 0 is the focal haplotype marker, 1 is the nearest marker to this, 2
+        # is the second nearest marker and so on. n holds gives the number of
+        # haplotypes at the given node. node_haplotypes is initialised with the
+        # element for the focal haplotype, and the loops below add new elements.
+        node_haplotypes = np.array([("", 0, np.shape(haplo)[0]), ],
+                                   dtype=node_haplotypes_dtype)
         
-        # step through markers starting at the core haplotype (marker_relative_index == 0) and moving outwards
-        for marker_relative_index in arange(n_markers) + 1:
-            # how many nodes do we already have at this point? This is subsequently used to determine indexes of new nodes
+        # step through markers starting at the core haplotype (marker_relative_
+        # index == 0) and moving outwards
+        for marker_relative_index in np.arange(n_markers) + 1:
+            # how many nodes do we already have at this point? This is
+            # subsequently used to determine indexes of new nodes
             n_current_nodes = len(node_haplotypes)
-            current_haplotypes = np.apply_along_axis(lambda x: ''.join(np.char.mod('%d', x)),1,haplo[:, 0:marker_relative_index])
+            current_haplotypes = np.apply_along_axis(lambda x: ''.join(
+                np.char.mod('%d', x)), 1, haplo[:, 0:marker_relative_index])
     
-            nodes_at_previous_marker = node_haplotypes[node_haplotypes['marker_relative_index'] == marker_relative_index - 1]
+            nodes_at_previous_marker = node_haplotypes[
+                node_haplotypes['marker_relative_index'] == marker_relative_index - 1]
+
             for node_haplotype in nodes_at_previous_marker:
                 possible_haps_vec = np.vectorize(lambda x: node_haplotype['haplotype_string'] + '%d' % x)
                 possible_current_haplotypes = possible_haps_vec(arange(4))
@@ -329,7 +379,6 @@ def bifurcation_coords(node_haplotypes, branching_structure, focal_markers, POS,
                 if side == 'left':
                     coords[node_index, 0] = POS[np.min(focal_markers) - marker_relative_index]
     return(coords)
-
 
 
 def haplotype_bifurcation_branch(analysis_results, bifurcation_coords, n_markers, refsize, ax, **kwargs):
