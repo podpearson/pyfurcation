@@ -1,0 +1,5 @@
+numpy
+numexpr
+tables
+pandas
+matplotlib
